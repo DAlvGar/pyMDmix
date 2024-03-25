@@ -303,6 +303,9 @@ Solvent: {solvent}
         if self.mdProgram == 'OPENMM':
             from OpenMM import OpenMMCheck
             return OpenMMCheck(self, **kwargs)
+        if self.mdProgram == 'GROMACS':
+            from GROMACS import GROMACSCheck
+            return GROMACSCheck(self, **kwargs)
         elif self.mdProgram == 'NAMD':
             from NAMD import NAMDCheck
             return NAMDCheck(self, **kwargs)
@@ -596,7 +599,8 @@ Solvent: {solvent}
             from NAMD import NAMDWriter as writer
         elif self.mdProgram == 'OPENMM':
             from OpenMM import OpenMMWriter as writer
-
+        elif self.mdProgram == 'GROMACS':
+            from GROMACS import GROMACSWriter as writer
         else:
             raise ReplicaError, "MD Program not recognized: %s"%self.mdprog
 

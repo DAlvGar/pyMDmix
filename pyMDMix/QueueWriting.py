@@ -117,6 +117,9 @@ class QueueInputWriter(object):
         elif replica.mdProgram == 'OPENMM':
             from OpenMM import OpenMMWriter
             writer = OpenMMWriter(replica)
+        elif replica.mdProgram == 'GROMACS':
+            from GROMACS import GROMACSWriter
+            writer = GROMACSWriter(replica)
         else:
             raise QueueInputError, "Replica has unknown mdProgram attribute: %s"%replica.mdProgram
 
@@ -124,7 +127,11 @@ class QueueInputWriter(object):
         # MINIMIZATION
         jobname = replica.name+'_min'
         precommands = ''
-        commands = writer.getCommand('min')
+        if replica.mdProgram in {'GROMACS'}:
+            commands = writer.getCommand('min1')
+            commands += '\n'+writer.getCommand('min2')
+        else:
+            commands = writer.getCommand('min')
         postcommands = 'cd ..'+os.sep+replica.eqfolder
         next = 'eq.q'
         replica.go()
@@ -136,6 +143,7 @@ class QueueInputWriter(object):
         jobname = replica.name+'_eq'
         precommands = ''
         if replica.mdProgram in {'AMBER', 'OPENMM'}: neqsteps = 5
+        elif replica.mdProgram in {'GROMACS'}: neqsteps = 3
         else: neqsteps = 2
         commands = '\n'.join([writer.getCommand('eq',i) for i in range(1,neqsteps+1)])
         postcommands = 'cd ..'+os.sep+replica.mdfolder

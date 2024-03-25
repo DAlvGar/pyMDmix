@@ -1,0 +1,24 @@
+;       Input file for minim
+;       Step 2
+;
+
+; Parameters describing what to do, when to stop and what to save
+integrator      = cg            ; Algorithm (cg = conjugate gradient, better near to minima)
+constraints     = none          ; only those described in topology file
+emtol           = 100.0         ; Stop minimization when the maximum force < 1000.0 kJ/mol/nm
+emstep          = 0.005         ; Energy step size
+nstcomm         = 1             ; frequency to remove the movement of center of mass
+nsteps          = $minsteps          ; Maximum number of (minimization) steps to perform
+nstcgsteep      = 10            ; Conjugate gradient is more efficient when a steepest descent is performed every once in a while
+nbfgscorr       = 10            ; Number of correction steps to use for L-BFGS minimization
+
+; Parameters describing how to find the neighbors of each atom and how to calculate the interactions
+nstlist         = 10            ; Frequency to update the neighbor list and long range forces
+ns_type         = grid          ; Method to determine neighbor list (simple, grid)
+rlist           = 1.2           ; Cut-off for making neighbor list (short range forces)
+coulombtype     = PME           ; Treatment of long range electrostatic interactions
+rcoulomb        = 1.2           ; Short-range electrostatic cut-off
+rvdw            = 1.2           ; Short-range Van der Waals cut-off
+pbc             = xyz           ; Periodic Boundary Conditions
+cutoff-scheme   = Verlet
+
