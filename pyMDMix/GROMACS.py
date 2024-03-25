@@ -162,15 +162,15 @@ class GROMACSWriter(object):
         gro = osp.basename(replica.crd)+".gro"
         grotop = osp.basename(replica.top)+".top"
         
-        extension = 'nc'
+        # extension = 'nc'
 
         command = False
 
-        if replica.hasRestraints:
-            m = self.getRestraintsIndex()
-            mfield = self.restrT.substitute({'force':replica.restrForce,'mask':m})
-        else:
-            mfield = ''
+        # if replica.hasRestraints:
+        #     m = self.getRestraintsIndex()
+        #     mfield = self.restrT.substitute({'force':replica.restrForce,'mask':m})
+        # else:
+        # mfield = ''
 
         # CONVERT FROM AMBER TO GROMACS FORMATS FIRST USING amb2gro_top_gro.py
         
@@ -347,7 +347,7 @@ class GROMACSWriter(object):
         # - second step (NPT) = 100000 steps (2ns) of constant pressure constant temp at max temp
 
         # FIRST STEP
-        # Heating up the system from 100 to Final Temperature during 1ns
+        # Heating up the system from 100 to Final Temperature during 1ns WITH RESTRAINTS
         formatdict['temp'] = replica.temp
         formatdict['eqinput'] = os.path.join(os.pardir, replica.minfolder, 'min')
         formatdict['eqoutput'] = 'eq1'
@@ -361,12 +361,20 @@ class GROMACSWriter(object):
         formatdict['first_step'] = formatdict['final_step']
 
         # SECOND STEP
-        # NPT equilibration for 1ns
+        # NPT Equil Berendsen no pos res
         formatdict['eqoutput'] = 'eq2'
         formatdict['final_step'] = formatdict['first_step'] + replica.npt_eq_steps
         eq2out = replica.eqfolder+os.sep+'eq2.mdp'
-        open(eq2out,'w').write(self.mdNPT.substitute(formatdict))
+        open(eq2out,'w').write(self.eq2T.substitute(formatdict))
         exists = osp.exists(eq1out) and osp.exists(eq2out)
+
+        # THIRD STEP
+        # NPT Equil Parrinello Rahman no pos res
+        formatdict['eqoutput'] = 'eq3'
+        # formatdict['final_step'] = formatdict['first_step'] + replica.npt_eq_steps
+        eq3out = replica.eqfolder+os.sep+'eq3.mdp'
+        open(eq3out,'w').write(self.eq3T.substitute(formatdict))
+        exists = osp.exists(eq1out) and osp.exists(eq2out) and osp.exists(eq3out)
         
         T.BROWSER.goback()
         return exists
@@ -618,10 +626,11 @@ class Test(BT.BiskitTest):
         top = osp.join(T.testRoot('pep', 'pep.prmtop'))
         crd = osp.join(T.testRoot('pep', 'pep.prmcrd'))
         sys = SolvatedSystem(name='pep',top=top, crd=crd)
-        settings = MDSettings(solvent='WAT',mdProgram='GROMACS',restrMode='HA', restrForce=0.1)
+        #settings = MDSettings(solvent='WAT',mdProgram='GROMACS',restrMode='HA', restrForce=0.1)
+        settings = MDSettings(solvent='ETA',mdProgram='GROMACS',num_threads=16, nanos=200, md_timestep=4, prod_steps=5000000) # 5M * 4fs = 200ns in each file = 1 single production file
         
         self.testdir =  T.tempDir()
-        self.r1 = sys+settings
+        self.r1 = sys+settings # create replica
         self.r1.setName('testGROMACS')
         
         T.BROWSER.chdir(self.testdir)
@@ -630,6 +639,7 @@ class Test(BT.BiskitTest):
         self.r1.createFolder()
         self.r1.createMDInput()
         writer = GROMACSWriter(self.r1)
+        print "\n".join(writer.getReplicaCommands())
         
         self.testdir += os.sep+'testGROMACS'
     
