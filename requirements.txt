@@ -6,3 +6,4 @@ Biskit
 mechanize
 biopython==1.76
 griddataformats
+parmed==3.0.0
