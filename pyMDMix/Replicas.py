@@ -609,6 +609,11 @@ Solvent: {solvent}
         w = writer(self)
         w.writeCommands()
         w.writeReplicaInput()
+        
+        # Apply HMass Repartitioning if 4fs timestep is requested
+        if self.md_timestep == 4:
+            self.log.info("%dfs time step: Applying Hydrogen Mass Repartition to replica %s"%(self.md_timestep, self.name))
+            self.applyHMassRepartitioning()
 
         self.__mdinput = True
         if self.__folderscreated: self.write()
@@ -641,6 +646,17 @@ Solvent: {solvent}
     def iscreated(self):
         "Return **True** if replica folder and MD inputs have been written"
         return self.folderscreated() and self.mdinputwritten()
+
+    def applyHMassRepartitioning(self):
+        "Apply hydrogen mass repartitioning"
+        import parmed as pmd
+        import shutil
+        parm = pmd.load_file(self.top)
+        hmass = pmd.tools.actions.HMassRepartition(parm)
+        #print(str(hmass))
+        hmass.execute()
+        shutil.move(self.top, self.top+'_back')
+        parm.save(self.top)
 
     def createFolder(self, where=False, fixtop=True, **kwargs):
         """

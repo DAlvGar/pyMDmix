@@ -7,3 +7,4 @@ mechanize
 biopython==1.76
 parmed==3.0.0
 griddataformats
+parmed==3.0.0
