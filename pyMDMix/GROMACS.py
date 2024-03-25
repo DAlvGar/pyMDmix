@@ -159,8 +159,8 @@ class GROMACSWriter(object):
         prevsep = os.pardir+os.sep
         top = osp.basename(replica.top)
         crd = osp.basename(replica.crd)
-        gro = osp.basename(replica.crd)+".gro"
-        grotop = osp.basename(replica.top)+".top"
+        # gro = osp.basename(replica.crd)+".gro"
+        # grotop = osp.basename(replica.top)+".top"
         
         # extension = 'nc'
 
@@ -183,13 +183,13 @@ class GROMACSWriter(object):
         # $GMX mdrun -s BAA_complex_min2.tpr -deffnm BAA_complex_min2 -nt $NT
 
         if process == 'min1':
-            command = 'amb2gro_top_gro.py -p %s -c %s -t %s -g %s \n'%(prevsep+top, prevsep+crd, prevsep+grotop, prevsep+gro)
-            command += S.GROMACS_EXE+' grompp -f min1.mdp -c %s -p %s -o min1.tpr -n i.ndx \n'%(prevsep+gro, prevsep+grotop)
+            # command = 'amb2gro_top_gro.py -p %s -c %s -t %s -g %s \n'%(prevsep+top, prevsep+crd, prevsep+replica.grotop, prevsep+replica.gro)
+            command = S.GROMACS_EXE+' grompp -f min1.mdp -c %s -p %s -o min1.tpr -n i.ndx \n'%(prevsep+replica.gro, prevsep+replica.grotop)
             command += S.GROMACS_EXE+' mdrun -s min1.tpr -deffnm min1 -nt %d '%(self.replica.num_threads)
             return command
         
         elif process == 'min2':
-            command = S.GROMACS_EXE+' grompp -f min2.mdp -c min1.gro -p %s -o min2.tpr -n i.ndx \n'%(prevsep+grotop)
+            command = S.GROMACS_EXE+' grompp -f min2.mdp -c min1.gro -p %s -o min2.tpr -n i.ndx \n'%(prevsep+replica.grotop)
             command += S.GROMACS_EXE+' mdrun -s min2.tpr -deffnm min2 -nt %d '%(self.replica.num_threads)
             return command
 
@@ -213,13 +213,13 @@ class GROMACSWriter(object):
             if step == 1:
                 #First step
                 # eqfname = replica.eqoutfiletemplate.format(step=step,extension='')
-                command = S.GROMACS_EXE+' grompp -f eq1.mdp -c %smin2.gro -p %s -o eq1.tpr -n i.ndx \n'%(prevsep+replica.minfolder+os.sep, prevsep+grotop)
+                command = S.GROMACS_EXE+' grompp -f eq1.mdp -c %smin2.gro -p %s -o eq1.tpr -n i.ndx \n'%(prevsep+replica.minfolder+os.sep, prevsep+replica.grotop)
                 command += S.GROMACS_EXE+' mdrun -s eq1.tpr -deffnm eq1 -nt %d '%(self.replica.num_threads)
 
             elif step > 1:
                 # eqfname = replica.eqoutfiletemplate.format(step=step,extension='')
                 # preveqfname = replica.eqoutfiletemplate.format(step=step-1,extension='')
-                command = S.GROMACS_EXE+' grompp -f eq%d.mdp -c eq%d.gro -p %s -o eq%d.tpr -n i.ndx \n'%(step,step-1,prevsep+grotop,step)
+                command = S.GROMACS_EXE+' grompp -f eq%d.mdp -c eq%d.gro -p %s -o eq%d.tpr -n i.ndx \n'%(step,step-1,prevsep+replica.grotop,step)
                 command += S.GROMACS_EXE+' mdrun -s eq%d.tpr -deffnm eq%d -nt %d '%(step,step,self.replica.num_threads)
                 # command = S.GROMACS_EXE+' eq%i.py %s %srst %srst '%(step, prevsep+top, preveqfname, eqfname)
 
@@ -233,7 +233,7 @@ class GROMACSWriter(object):
             mdouttemplate=replica.mdoutfiletemplate.replace('.{extension}','')
             if step == 1:
                 fname = mdouttemplate.format(step=1)
-                command = S.GROMACS_EXE+' grompp -f md.mdp -c %seq%d.gro -p %s -o md%d.tpr -n i.ndx \n'%( prevsep+replica.eqfolder+os.sep, 3, prevsep+grotop, step)
+                command = S.GROMACS_EXE+' grompp -f md.mdp -c %seq%d.gro -p %s -o md%d.tpr -n i.ndx \n'%( prevsep+replica.eqfolder+os.sep, 3, prevsep+replica.grotop, step)
                 command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d '%(step,step,self.replica.num_threads)
                 # command = S.GROMACS_EXE+' md.py %s %seq5.rst %s.rst %s.nc %s.log'%(prevsep+top, prevsep+replica.eqfolder+os.sep, fname, fname, fname)
 
@@ -242,7 +242,7 @@ class GROMACSWriter(object):
             elif step > 1:
                 prevfname=mdouttemplate.format(step=step-1)
                 nextfname=mdouttemplate.format(step=step)
-                command = S.GROMACS_EXE+' grompp -f md.mdp -c md%d.gro -p %s -o md%d.tpr -n i.ndx \n'%( step-1, prevsep+grotop, step)
+                command = S.GROMACS_EXE+' grompp -f md.mdp -c md%d.gro -p %s -o md%d.tpr -n i.ndx \n'%( step-1, prevsep+replica.grotop, step)
                 command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d '%(step,step,self.replica.num_threads)
                 # command = S.GROMACS_EXE+' md.py %s %s.rst %s.rst %s.nc %s.log'%(prevsep+top, prevfname, nextfname, nextfname, nextfname)
                 fname = nextfname
@@ -410,6 +410,22 @@ class GROMACSWriter(object):
         
         return exists
         
+    def convertAmberToGromacs(self, replica=False):
+        import parmed as pmd
+        self.log.info("Converting Amber TOP/CRD to GROMACS format for replica %s ..."%(replica.name))
+        replica = replica or self.replica
+        if not replica: raise GROMACSWriterError, "Replica not assigned."
+        # Load the AMBER prmtop and inpcrd files
+        amber = pmd.load_file(self.replica.top, xyz=self.replica.crd)
+        self.replica.grotop = self.replica.top.replace('prmtop','top')
+        self.replica.gro = self.replica.crd.replace('prmcrd','gro')
+
+        # Save GROMACS top and gro files, along with a PDB file
+        amber.save(self.replica.grotop, overwrite=True, format='gromacs')
+        amber.save(self.replica.gro, overwrite=True, format='gro')
+        #amber.save(options.pdb, overwrite=True, format='pdb')
+        
+    
     def writeReplicaInput(self, replica=False):
         replica = replica or self.replica
         if not replica: raise GROMACSWriterError, "Replica not assigned."
@@ -420,6 +436,9 @@ class GROMACSWriter(object):
 
         if not (osp.exists(replica.top) and osp.exists(replica.crd)): # and osp.exists(replica.pdb)):
             raise GROMACSWriterError, "Replica top or crd files not found in current folder: %s, %s"%(replica.top, replica.crd)
+
+        # Convert input Amber top and CRD to GROMACS compatible 
+        self.convertAmberToGromacs()
 
         # Write inputs
         minok = self.writeMinInput(replica)
