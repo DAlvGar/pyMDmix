@@ -31,6 +31,7 @@ import os.path as osp
 import logging
 import string
 import numpy as npy
+import subprocess as sub
 #import MDMix.Config as config
 #from MDMix.PDB import PDBManager
 
@@ -47,9 +48,16 @@ class GROMACSWriter(object):
     def __init__(self, replica=False):
         self.log = logging.getLogger("GROMACSWriter")
         self.replica = replica
+        self.replica.extension = 'xtc'
 
         # Load template inputs
-        self.loadConfig()
+        self.loadConfig()        
+        
+        # Convert inputs and add groups and restraints if not done already
+        if not self.replica.gro:
+            self.convertAmberToGromacs()
+            self.createGroups()
+            self.createRestraintsITP()
 
     def loadConfig(self, min=None, min2=None, eq1=None, eq2=None, eq3=None, mdNPT=None, mdNVT=None, restr=None):
         """
@@ -86,12 +94,137 @@ class GROMACSWriter(object):
         # if restr: self.restrT = string.Template(open(restr, 'r').read().rstrip())
         # else: self.restrT = string.Template(open(T.templatesRoot('GROMACS_restr_templ.txt'), 'r').read().rstrip())
 
+    def fetchLastGroupN(self):
+        exe = "gmx make_ndx -f %s -o _tmp_.ndx << EOF\nq\nEOF"%(self.replica.gro)
+        proc = sub.Popen(exe, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
+        exit_code = proc.wait()
+        if not exit_code:
+            stdout = proc.stdout.read()
+            relevant_lines = [line.strip() for line in stdout.split('\n') if len(line.strip().split()) > 2 and (':' in line)]
+            group_numbers = [int(line.split()[0]) for line in relevant_lines if line.split()[0].isdigit()]
+            if group_numbers:
+                return max(group_numbers)
+            else:
+                return None
+        return False
+    
+    def preAlign(self):
+        """
+        Use gmx trajconv to image and center the trajectory for cpptraj to correctly process it afterwards
+        Will act on md production trajectories, replacing the original output by an imaged / centered one 
+        """
+        self.replica.go() # Go to replica main folder
+        self.log.info("Prealigning GROMACS trajectories")
+        steps = range(1, self.replica.ntrajfiles+1)
+        # Expected extension names in production folder
+        exts = self.replica.checkProductionExtension(steps)
+        p = self.replica.mdfolder+os.sep
+        for i in steps:
+            ext = exts[i]
+            n = self.replica.mdoutfiletemplate.format(step=i, extension=ext)
+            trajin = p+n # eg md/md1.xtc
+            tprin = trajin.replace(ext, 'tpr')
+            trajout=trajin.replace('.'+ext, '_al.'+ext)
+            trajtmp=trajin.replace('.'+ext, '_tmp.'+ext)
+            cmd = "echo '1 0'|gmx trjconv -s %s -f %s -o %s -pbc nojump -center;\
+                  echo '1 0'|gmx trjconv -s %s -f %s -o %s -pbc mol -ur compact -center; mv %s %s; rm %s"%(tprin, 
+                                        trajin, trajtmp, tprin, trajtmp, trajout, trajout, trajin, trajtmp)
+            self.log.debug(cmd)
+            proc = sub.Popen(cmd, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
+            exit_code = proc.wait()
+            if exit_code: # Exit different to zero means error
+                self.log.error("Could not prealign GROMACS trajectory "+trajin)
+                raise GROMACSWriterError, "Could not prealign GROMACS trajectory "+trajin
+            else:
+                self.log.info("Pre-alignment of GROMACS trajectory done: %s"%trajin)        
+        T.BROWSER.goback()
+        return True
+    
+    def createGroups(self):
+        # create groups ndx file
+        if len(self.replica.system.extraResList): extrares = ' | r '+' '.join([er for er in self.replica.system.extraResList])
+        else: extrares = ''
+        
+        solventbox = self.replica.getSolvent()
+        cosolvent = ' '.join([co.name for co in solventbox.residues])
+                
+        if (self.replica.system.ligandResname != ''):
+            ligand_res = "| "+self.replica.system.ligandResname # if ligand_residue name is defined, add to protein group for temperature coupling
+        else:
+            ligand_res = ''
+            
+        lastN = self.fetchLastGroupN()
+            
+        exe = "gmx make_ndx -f %s -o groups.ndx"%(self.replica.gro)
+        groups = """
+        "protein" %s
+        name %d protein_extra
+        "Protein-H" %s & !a H*
+        name %d protein_extra_noh
+        "protein" %s
+        name %d solute
+        r NA+ Na+ CL- Cl- %s
+        name %d solvent
+"""%(extrares, lastN+1, extrares, lastN+2, ligand_res, lastN+3, cosolvent, lastN+4)
+        if ligand_res != '':
+            groups+="r "+ligand_res
+            groups+="\nname %d ligand\n"%(lastN+5)
+        groups += 'q'
+        cmd=exe+" << EOF\n"+groups+"\nEOF"
+        self.log.debug(cmd)
+        proc = sub.Popen(cmd, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
+        exit_code = proc.wait()
+        if exit_code: # Exit different to zero means error
+            self.log.error("Could not generate GROMACS groups")
+            raise GROMACSWriterError, "Could not generate GROMACS groups"
+        if os.path.exists('groups.ndx'):
+            # include groups in topology
+            # with open(self.replica.grotop,'r') as top:
+            #     toplines = top.read()
+            
+            # newtop='#include "groups.ndx"\n'+toplines
+            
+            # with open(self.replica.grotop, 'w') as topout:
+            #     topout.write(newtop)
+                
+            return True
+        else:
+            return False
 
-    def getBoxFromCRD(self, crd):
-        "Read box size from CRD file bottom line"
-        boxline = open(crd, 'r').readlines()[-1]
-        return npy.array( boxline.split()[0:3] , dtype='float32')
-
+    def createRestraintsITP(self, group_name='solute', force=1000, itp_out='posre.itp', ifname='POSRES'):
+        self.log.info("GROMACS: Adding restraints %s"%(itp_out))
+        cmd = "gmx genrestr -f %s -n groups.ndx -o %s -fc %f %f %f << EOF\n"%(self.replica.gro, itp_out, force, force, force)
+        cmd += "%s\nEOF"%(group_name)
+        posres = """             
+; Include Position restraint file
+#ifdef %s
+#include "%s"
+#endif\n
+"""%(ifname, itp_out)
+        proc = sub.Popen(cmd, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
+        exit_code = proc.wait()
+        if exit_code: # Exit different to zero means error
+            self.log.error("Could not generate GROMACS restraints file")
+            raise GROMACSWriterError, "Could not generate GROMACS restraints file"
+        if os.path.exists(itp_out):
+            with open(self.replica.grotop,'r') as top:
+                toplines = top.readlines()
+            new_lines = []
+            n = 0
+            for l in toplines:
+                if '[ moleculetype ]' in l:
+                    if n == 1:
+                        new_lines.append(posres)
+                    n += 1
+                new_lines.append(l)
+                    
+            with open(self.replica.grotop, 'w') as topout:
+                topout.write(''.join(new_lines))
+            
+            return True
+        return False    
+        #cmd_ha = "gmx genrestr -f %s -n groups.ndx -o ha.itp -fc 1000 1000 1000 -n protein_extra_noh"%(self.replica.gro)
+                        
     def getRestraintsIndex(self, replica=False):
         """
         Get the index of atoms to be restrained.
@@ -156,98 +289,74 @@ class GROMACSWriter(object):
         replica = replica or self.replica
         if not replica: raise GROMACSWriterError, "Replica not assigned."
 
-        prevsep = os.pardir+os.sep
-        top = osp.basename(replica.top)
-        crd = osp.basename(replica.crd)
+        prevsep = os.pardir+os.sep        
+        # top = osp.basename(replica.top)
+        # crd = osp.basename(replica.crd)
         # gro = osp.basename(replica.crd)+".gro"
         # grotop = osp.basename(replica.top)+".top"
         
         # extension = 'nc'
 
-        command = False
-
-        # if replica.hasRestraints:
-        #     m = self.getRestraintsIndex()
-        #     mfield = self.restrT.substitute({'force':replica.restrForce,'mask':m})
-        # else:
-        # mfield = ''
+        if replica.hasRestraints: restr = '-r %s'%(prevsep+replica.gro)
+        else: restr = ''
 
         # CONVERT FROM AMBER TO GROMACS FORMATS FIRST USING amb2gro_top_gro.py
         
         # # min1
-        # $GMX grompp -f min1.mdp -c BAA_complex.gro -p topol.top -o BAA_complex_min1.tpr -n i.ndx
+        # $GMX grompp -f min1.mdp -c BAA_complex.gro -p topol.top -o BAA_complex_min1.tpr -n ../groups.ndx
         # $GMX mdrun -s BAA_complex_min1.tpr -deffnm BAA_complex_min1 -nt $NT
 
         # # min2
-        # $GMX grompp -f min2.mdp -c BAA_complex_min1.gro -p topol.top -o BAA_complex_min2.tpr -n i.ndx
+        # $GMX grompp -f min2.mdp -c BAA_complex_min1.gro -p topol.top -o BAA_complex_min2.tpr -n ../groups.ndx
         # $GMX mdrun -s BAA_complex_min2.tpr -deffnm BAA_complex_min2 -nt $NT
 
         if process == 'min1':
             # command = 'amb2gro_top_gro.py -p %s -c %s -t %s -g %s \n'%(prevsep+top, prevsep+crd, prevsep+replica.grotop, prevsep+replica.gro)
-            command = S.GROMACS_EXE+' grompp -f min1.mdp -c %s -p %s -o min1.tpr -n i.ndx \n'%(prevsep+replica.gro, prevsep+replica.grotop)
-            command += S.GROMACS_EXE+' mdrun -s min1.tpr -deffnm min1 -nt %d '%(self.replica.num_threads)
+            command = S.GROMACS_EXE+' grompp -f min1.mdp -c %s -p %s -o min1.tpr -n ../groups.ndx \n'%(prevsep+replica.gro, prevsep+replica.grotop)
+            command += S.GROMACS_EXE+' mdrun -s min1.tpr -deffnm min1 -nt %d -pin auto'%(self.replica.num_threads)
             return command
         
         elif process == 'min2':
-            command = S.GROMACS_EXE+' grompp -f min2.mdp -c min1.gro -p %s -o min2.tpr -n i.ndx \n'%(prevsep+replica.grotop)
-            command += S.GROMACS_EXE+' mdrun -s min2.tpr -deffnm min2 -nt %d '%(self.replica.num_threads)
+            command = S.GROMACS_EXE+' grompp -f min2.mdp -c min1.gro -p %s -o min2.tpr -n ../groups.ndx \n'%(prevsep+replica.grotop)
+            command += S.GROMACS_EXE+' mdrun -s min2.tpr -deffnm min2 -nt %d -pin auto'%(self.replica.num_threads)
             return command
 
         # EQUILIBRATION STEPS
         
         # # NVT heating posre - 1ns
-        # $GMX grompp -f nvt.mdp -c BAA_complex_min2.gro -p topol.top -o BAA_complex_heat.tpr -n i.ndx
+        # $GMX grompp -f nvt.mdp -c BAA_complex_min2.gro -p topol.top -o BAA_complex_heat.tpr -n ../groups.ndx
         # $GMX mdrun -s BAA_complex_heat.tpr -deffnm BAA_complex_heat -nt $NT
 
         # # NPT Equil Berendsen no pos res
-        # $GMX grompp -f NPT_B.mdp -c BAA_complex_heat.gro -p topol.top -o BAA_complex_equilB.tpr -t BAA_complex_heat.cpt -n i.ndx
+        # $GMX grompp -f NPT_B.mdp -c BAA_complex_heat.gro -p topol.top -o BAA_complex_equilB.tpr -t BAA_complex_heat.cpt -n ../groups.ndx
         # $GMX mdrun -s BAA_complex_equilB.tpr -deffnm BAA_complex_equilB -nt $NT
 
         # # NPT Equil Parrinello Rahman no pos res
-        # $GMX grompp -f NPT_PR.mdp -c BAA_complex_equilB.gro -p topol.top -o BAA_complex_equilPR.tpr -t BAA_complex_equilB.cpt -n i.ndx
+        # $GMX grompp -f NPT_PR.mdp -c BAA_complex_equilB.gro -p topol.top -o BAA_complex_equilPR.tpr -t BAA_complex_equilB.cpt -n ../groups.ndx
         # $GMX mdrun -s BAA_complex_equilPR.tpr -deffnm BAA_complex_equilPR -nt $NT
 
         elif process == 'eq':
             if not step: return False
 
             if step == 1:
-                #First step
-                # eqfname = replica.eqoutfiletemplate.format(step=step,extension='')
-                command = S.GROMACS_EXE+' grompp -f eq1.mdp -c %smin2.gro -p %s -o eq1.tpr -n i.ndx \n'%(prevsep+replica.minfolder+os.sep, prevsep+replica.grotop)
-                command += S.GROMACS_EXE+' mdrun -s eq1.tpr -deffnm eq1 -nt %d '%(self.replica.num_threads)
-
+                #First step with positional restraints
+                command = S.GROMACS_EXE+' grompp -f eq1.mdp -c %smin2.gro -p %s -o eq1.tpr -n ../groups.ndx -r %s \n'%(prevsep+replica.minfolder+os.sep, prevsep+replica.grotop, prevsep+replica.gro)
+                command += S.GROMACS_EXE+' mdrun -s eq1.tpr -deffnm eq1 -nt %d -pin auto'%(self.replica.num_threads)
             elif step > 1:
-                # eqfname = replica.eqoutfiletemplate.format(step=step,extension='')
-                # preveqfname = replica.eqoutfiletemplate.format(step=step-1,extension='')
-                command = S.GROMACS_EXE+' grompp -f eq%d.mdp -c eq%d.gro -p %s -o eq%d.tpr -n i.ndx \n'%(step,step-1,prevsep+replica.grotop,step)
-                command += S.GROMACS_EXE+' mdrun -s eq%d.tpr -deffnm eq%d -nt %d '%(step,step,self.replica.num_threads)
-                # command = S.GROMACS_EXE+' eq%i.py %s %srst %srst '%(step, prevsep+top, preveqfname, eqfname)
-
+                # Second and third steps without restriants unless requested
+                command = S.GROMACS_EXE+' grompp -f eq%d.mdp -c eq%d.gro -p %s -o eq%d.tpr -n ../groups.ndx -t eq%d.cpt %s\n'%(step, step-1, prevsep+replica.grotop, step, step-1, restr)
+                command += S.GROMACS_EXE+' mdrun -s eq%d.tpr -deffnm eq%d -nt %d -pin auto'%(step,step,self.replica.num_threads)
             return command
-        
-        
-
+                
         elif process == 'md':
             if not step: return False
-
-            mdouttemplate=replica.mdoutfiletemplate.replace('.{extension}','')
             if step == 1:
-                fname = mdouttemplate.format(step=1)
-                command = S.GROMACS_EXE+' grompp -f md.mdp -c %seq%d.gro -p %s -o md%d.tpr -n i.ndx \n'%( prevsep+replica.eqfolder+os.sep, 3, prevsep+replica.grotop, step)
-                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d '%(step,step,self.replica.num_threads)
-                # command = S.GROMACS_EXE+' md.py %s %seq5.rst %s.rst %s.nc %s.log'%(prevsep+top, prevsep+replica.eqfolder+os.sep, fname, fname, fname)
-
-                command = command.format(fname=fname)
-
+                command = S.GROMACS_EXE+' grompp -f md.mdp -c %seq%d.gro -p %s -o md%d.tpr -n ../groups.ndx -t %seq%d.cpt %s\n'%( prevsep+replica.eqfolder+os.sep, 3, prevsep+replica.grotop, step, prevsep+replica.eqfolder+os.sep, 3, restr)
+                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d -pin auto'%(step,step,self.replica.num_threads)
             elif step > 1:
-                prevfname=mdouttemplate.format(step=step-1)
-                nextfname=mdouttemplate.format(step=step)
-                command = S.GROMACS_EXE+' grompp -f md.mdp -c md%d.gro -p %s -o md%d.tpr -n i.ndx \n'%( step-1, prevsep+replica.grotop, step)
-                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d '%(step,step,self.replica.num_threads)
+                command = S.GROMACS_EXE+' grompp -f md.mdp -c md%d.gro -p %s -o md%d.tpr -n ../groups.ndx -t md%d.cpt %s\n'%( step-1, prevsep+replica.grotop, step, step-1, restr)
+                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d -pin auto'%(step,step,self.replica.num_threads)
                 # command = S.GROMACS_EXE+' md.py %s %s.rst %s.rst %s.nc %s.log'%(prevsep+top, prevfname, nextfname, nextfname, nextfname)
-                fname = nextfname
-                command = command.format(nextfname=nextfname, prevfname=prevfname)
-
             return command
 
         else: pass
@@ -302,24 +411,23 @@ class GROMACSWriter(object):
         
         T.BROWSER.gotoReplica(replica)
         
-        restr = ''
-        if replica.hasRestraints:
-            if not replica.minimizationAsRef: restr = self.restr
-            else: 
-                self.log.warn('Use of Minimized structure as restraint reference is still not possible with GROMACS. Will use starting PRMCRD.')
-                restr = self.restr
+        # restr = ''
+        # if replica.hasRestraints:
+        #     if not replica.minimizationAsRef: restr = self.restr
+        #     else: 
+        #         self.log.warn('Use of Minimized structure as restraint reference is still not possible with GROMACS. Will use starting PRMCRD.')
+        #         restr = self.restr
         
-        formatdict = {'top':replica.top, 'crd':replica.crd, 'restraints':restr, 
-                        'box':self.getBoxFromCRD(replica.crd).max(), 'timestep':int(replica.md_timestep),
+        formatdict = {'timestep':int(replica.md_timestep),
                         'freq':replica.trajfrequency}
         # First minimization step 
         # formatdict['minsteps'] = replica.minsteps
-        formatdict['minsteps'] = 50000
+        formatdict['minsteps'] = replica.gromacs_min1_steps
         out = replica.minfolder+os.sep+'min1.mdp'
         open(out,'w').write(self.minT.substitute(formatdict))
         
         # Smalls teps for conjugate gradient
-        formatdict['minsteps'] = 5000
+        formatdict['minsteps'] = replica.gromacs_min2_steps
         out = replica.minfolder+os.sep+'min2.mdp'
         open(out,'w').write(self.minT2.substitute(formatdict))
         exists = osp.exists(out)
@@ -335,43 +443,38 @@ class GROMACSWriter(object):
         replica = replica or self.replica
         if not replica: raise GROMACSWriterError, "Replica not assigned."
         
-        restr = ''
-        if replica.hasRestraints: restr = self.restr
+        # restr = ''
+        # if replica.hasRestraints: restr = self.restr                
+        if replica.hasRestraints:        
+            mfield = 'define                   = -DPOSRES'
+        else:
+            mfield = ''
             
         T.BROWSER.gotoReplica(replica)
-        formatdict = {'top':replica.top, 'crd':replica.crd, 'restraints':restr, 
-                        'timestep':replica.md_timestep, 'freq':replica.trajfrequency}
+        formatdict = {'timestep':'%.3f'%(replica.md_timestep/1000.), 
+                      'maskfield':mfield,
+                      'freq':replica.trajfrequency, 'temp': replica.temp}
+        
         # EQUILIBRATION
-        # It comprises 2 steps:
+        # It comprises 3 steps:
         # - first step (NV) = 500000 steps (1ns) for heating from 100K up to 300K
         # - second step (NPT) = 100000 steps (2ns) of constant pressure constant temp at max temp
 
         # FIRST STEP
-        # Heating up the system from 100 to Final Temperature during 1ns WITH RESTRAINTS
-        formatdict['temp'] = replica.temp
-        formatdict['eqinput'] = os.path.join(os.pardir, replica.minfolder, 'min')
-        formatdict['eqoutput'] = 'eq1'
-        formatdict['first_step'] = 0
-        formatdict['final_step'] = replica.namd_heating_steps # 1ns (timestep=0.002ps)
-        eq1out = replica.eqfolder+os.sep+'eq1.mdp'
-        
+        # Heating up the system from 100 to Final Temperature during 1ns WITH RESTRAINTS        
+        formatdict['nsteps'] = replica.gromacs_eq1_steps
+        eq1out = replica.eqfolder+os.sep+'eq1.mdp'        
         open(eq1out,'w').write(self.eq1T.substitute(formatdict))
-
-        formatdict['eqinput'] = formatdict['eqoutput']
-        formatdict['first_step'] = formatdict['final_step']
 
         # SECOND STEP
         # NPT Equil Berendsen no pos res
-        formatdict['eqoutput'] = 'eq2'
-        formatdict['final_step'] = formatdict['first_step'] + replica.npt_eq_steps
+        formatdict['nsteps'] = replica.gromacs_eq2_steps
         eq2out = replica.eqfolder+os.sep+'eq2.mdp'
         open(eq2out,'w').write(self.eq2T.substitute(formatdict))
-        exists = osp.exists(eq1out) and osp.exists(eq2out)
 
         # THIRD STEP
         # NPT Equil Parrinello Rahman no pos res
-        formatdict['eqoutput'] = 'eq3'
-        # formatdict['final_step'] = formatdict['first_step'] + replica.npt_eq_steps
+        formatdict['nsteps'] = replica.gromacs_eq3_steps
         eq3out = replica.eqfolder+os.sep+'eq3.mdp'
         open(eq3out,'w').write(self.eq3T.substitute(formatdict))
         exists = osp.exists(eq1out) and osp.exists(eq2out) and osp.exists(eq3out)
@@ -387,19 +490,22 @@ class GROMACSWriter(object):
         replica = replica or self.replica
         if not replica: raise GROMACSWriterError, "Replica not assigned."
         
-        restr = ''
-        if replica.hasRestraints: restr = self.restr
+        if replica.hasRestraints:        
+            mfield = 'define                   = -DPOSRES'
+        else:
+            mfield = ''
             
         T.BROWSER.gotoReplica(replica)
 
         # PRODUCTION
         # Prepare md configuration files for each trajectory file
-        substDict = {'top':replica.top, 'crd':replica.crd, 'restraints':restr,
-                        'timestep':replica.md_timestep, 'freq':replica.trajfrequency,
-                        'temp':replica.temp}
+        substDict = {'timestep':'%.3f'%(replica.md_timestep/1000.), 
+                     'freq':replica.trajfrequency,
+                     'maskfield': mfield,
+                     'temp':replica.temp}
 
         # Write md input, 1ns each file and run under NVT conditions
-        substDict['nsteps'] = replica.prod_steps # 1ns each file
+        substDict['nsteps'] = replica.prod_steps # default is 500K = 2ns @4fs
         outf=replica.mdfolder+os.sep+'md.mdp'
         self.log.debug("Writing: %s"%outf)
         if replica.production_ensemble == 'NPT': prodfile = self.cpmd
@@ -409,13 +515,14 @@ class GROMACSWriter(object):
         T.BROWSER.goback()
         
         return exists
-        
+               
     def convertAmberToGromacs(self, replica=False):
         import parmed as pmd
-        self.log.info("Converting Amber TOP/CRD to GROMACS format for replica %s ..."%(replica.name))
         replica = replica or self.replica
         if not replica: raise GROMACSWriterError, "Replica not assigned."
+        
         # Load the AMBER prmtop and inpcrd files
+        self.log.info("Converting Amber TOP/CRD to GROMACS format for replica %s ..."%(replica.name))
         amber = pmd.load_file(self.replica.top, xyz=self.replica.crd)
         self.replica.grotop = self.replica.top.replace('prmtop','top')
         self.replica.gro = self.replica.crd.replace('prmcrd','gro')
@@ -438,7 +545,7 @@ class GROMACSWriter(object):
             raise GROMACSWriterError, "Replica top or crd files not found in current folder: %s, %s"%(replica.top, replica.crd)
 
         # Convert input Amber top and CRD to GROMACS compatible 
-        self.convertAmberToGromacs()
+        # self.convertAmberToGromacs()
 
         # Write inputs
         minok = self.writeMinInput(replica)

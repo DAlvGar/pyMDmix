@@ -59,7 +59,7 @@ class System(object):
     """
     """
     def __init__(self, name=None, fromfile=None, amberPDB=None, amberOFF=None, unitName=None,
-                    extraResList=[], FF=S.DEF_AMBER_FF, **kwargs):
+                    extraResList=[], FF=S.DEF_AMBER_FF, ligandResname='', **kwargs):
         """
         Initialize a system object.
 
@@ -83,6 +83,7 @@ class System(object):
             
             self.name = name
             self.extraResList = extraResList
+            self.ligandResname = ligandResname
             self.sysFilePath = self.name+'.msys'
 
             # Try to find path of extra FF files if given

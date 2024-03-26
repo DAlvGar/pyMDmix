@@ -111,6 +111,13 @@ class SystemConfigFileParser(object):
             extrares = [l.strip() for l in extrares.split(',')]
             self.log.info("Given extra residue list: %s"%extrares)
         parms.update({'extraResList':extrares})
+        
+        # Optional: specify extra residue names to keep in reference structure (useful for modified residues)
+        ligandres = fileSection.get('ligandres', '')
+        ligandres = ligandres.strip()
+        if ligandres != '':
+            self.log.info("Given ligand residue name identifier: %s"%ligandres)
+        parms.update({'ligandResname':ligandres})
 
         # Reatrin mask is common
         restrmask = fileSection.get('restrmask') or 'auto'

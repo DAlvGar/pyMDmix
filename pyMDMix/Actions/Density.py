@@ -699,6 +699,8 @@ def DensityGridsAllHA_postprocess(results, replica, **kwargs):
     for probe, grid in results.iteritems():
         grid.writeDX(osp.join(replica.folder, probe+'.dx'))
     pyMDMix.browser.goback()
+    
+
 class cppDensity(object):
     def __init__(self, replica, reference=None, nthreads=None, run=True, write=True,
                     waitend=True, **kwargs):
@@ -765,6 +767,7 @@ class cppDensity(object):
         :arg list steps: list of steps to write input for. Should be a list of integers.
         """
         from pyMDMix.Amber import AmberWriter
+        
 
         self.replica.go()
         if not osp.exists(self.replica.densityfolder): os.mkdir(self.replica.densityfolder)

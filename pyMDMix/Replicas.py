@@ -128,9 +128,11 @@ class Replica(object):
             elif top and crd:
                 # Input as PRMTOP and PRMCRD, create solvated system from them
                 self.system = Systems.SolvatedSystem(top=top, crd=crd)
-            self.top = None                      #: Amber PRMTOP file with solvated system. To be set from input system.
-            self.pdb = None                      #: PDB file generated from PRMTOP and PRMCRD. To be set from input system.
-            self.crd = None                      #: Amber PRMCRD file with solvated system
+            self.top = None                     #: Amber PRMTOP file with solvated system. To be set from input system.
+            self.pdb = None                     #: PDB file generated from PRMTOP and PRMCRD. To be set from input system.
+            self.crd = None                     #: Amber PRMCRD file with solvated system
+            self.gro = None                     # GROMACS
+            self.grotop = None                  # GROMACS
             self.ref = None
             self.path = None                    #: Path to replica folder
             self.replFilePath = None            #: path to replica pickled file, should be placed inside replica directory
@@ -610,11 +612,6 @@ Solvent: {solvent}
         w.writeCommands()
         w.writeReplicaInput()
         
-        # Apply HMass Repartitioning if 4fs timestep is requested
-        if self.md_timestep == 4:
-            self.log.info("%dfs time step: Applying Hydrogen Mass Repartition to replica %s"%(self.md_timestep, self.name))
-            self.applyHMassRepartitioning()
-
         self.__mdinput = True
         if self.__folderscreated: self.write()
         self.goback()
@@ -718,6 +715,11 @@ Solvent: {solvent}
             # If fixtop, will remove SCEE and SCNB entries from topology file
             # Needed for some boxes
             if fixtop: self.__fixTopology(self.top)
+            
+            # Apply HMass Repartitioning if 4fs timestep is requested
+            if self.md_timestep == 4:
+                self.log.info("%dfs time step: Applying Hydrogen Mass Repartition to replica %s"%(self.md_timestep, self.name))
+                self.applyHMassRepartitioning()
 
             # Save reference pdb from pdb
             refpdb = self.system.ref
@@ -890,7 +892,8 @@ Solvent: {solvent}
     def runAlignment(self, ncpus=1, steps=[], waitend=True, **kwargs):
         if kwargs.get('run') and not self.isProductionFinished(steps): raise ReplicaError, "Cannot align replica because production stage is not completed."
         from Align import Align
-        Align(self, steps=steps, nthreads=ncpus, waitend=waitend, **kwargs)     
+        Align(self, steps=steps, nthreads=ncpus, waitend=waitend, **kwargs)  
+           
     def runcppDensity(self, ncpus, waitend=True, **kwargs):
         if kwargs.get('run') and not self.isAligned(): raise ReplicaError, "Cannot calculate density because alignment is not completed."
         from Actions.Density import DensityGrids, cppDensity
@@ -900,6 +903,7 @@ Solvent: {solvent}
         origin = samplegrid.container.origin
         dimensions = samplegrid.container.shape
         cppDensity(self, nthreads=ncpus, waitend=waitend,  griddimensions = dimensions, gridorigin=origin,**kwargs)
+    
     def calcEnergy(self, **kwargs):
         "Convert density to energies. Give in ``\*\*kwargs`` all parameters to :meth:`Energy.EnergyConversion.convert`."
         from Energy import EnergyConversion

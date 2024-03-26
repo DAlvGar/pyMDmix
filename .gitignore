@@ -6,7 +6,8 @@ nbproject/
 pyMDMix-0.1.6.zip
 pyMDMix.egg-info/
 src/mdmixscore.py
-
+pyMDMix/data/test/pep/*
+pyMDMix/data/test/leap.log
 singularity 
 
 .vscode/**

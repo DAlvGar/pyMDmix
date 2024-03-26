@@ -5,12 +5,12 @@
 ;---------------------------------------------
 integrator               = md                       ; leap-frog algorithm for Newton eq.
 tinit                    = 0
-dt                       = 0.002                    ; in ps
-nsteps                   = 2500000                  ; 5.00   ns
+dt                       = $timestep                   ; in ps
+nsteps                   = $nsteps                  ; 5.00   ns
 init-step                = 0
 ;----------------------------------
-;define                   = -DPOSRES                 ; position restrain the protein and the ligand
-xtc-grps                 = Protein_BAA
+xtc-grps                 = System
+$maskfield                 ; position restrain the protein and the ligand
 ;----------------------------------
 ; COM (center of mass) parameters
 ;----------------------------------
@@ -82,18 +82,18 @@ tcoupl                   = v-rescale                ; modified Berendsen thermos
 nsttcouple               = -1
 nh-chain-length          = 10
 ;tc-grps                 = system
-tc-grps                  = Protein_BAA Water_and_ions ; two coupling groups - more accurate
+tc-grps                  = solute solvent ; two coupling groups - more accurate
 ;tau-t                   = 0.1
 tau_t                    = 0.1     0.1              ; time constant, in ps
-;ref-t                   = 300
-ref_t                    = 300     300              ; reference temperature, one for each group, in K
+;ref-t                   = $temp
+ref_t                    = $temp     $temp              ; reference temperature, one for each group, in K
 ;----------------------------------
 ; Pressure coupling
 ;----------------------------------
-pcoupl                   = Berendsen                ; Pressure coupling on in NPT
+pcoupl                   = c-rescale                ; Pressure coupling on in NPT. Modified Berendsen barostat.
 pcoupltype               = isotropic                ; uniform scaling of box vectors
 nstpcouple               = -1
-tau-p                    = 0.5
+tau-p                    = 2.0
 compressibility          = 4.5e-5                   ; isothermal compressibility of water, bar^-1
 ref-p                    = 1.0                      ; reference pressure, in bar
 refcoord_scaling         = com
@@ -105,7 +105,7 @@ refcoord_scaling         = com
 ;----------------------------------------------
 ;----------------------------------------------
 gen-vel                  = no
-;gen-temp                = 300                      ; only if gen-vel is on
+;gen-temp                = $temp                      ; only if gen-vel is on
 
 
 ;----------------------------------------------
@@ -131,18 +131,18 @@ lincs-warnangle          = 30
 ;----------------------------------------------
 ; Output frequency for coords (x), vel (v) and forces (f)
 ;----------------------------------
-nstxout                  = 5000                     ; save coordinates every 10.0 ps
-nstvout                  = 5000                     ; save velocities every 10.0 ps
+nstxout                  = $freq                     ; save coordinates every 10.0 ps
+nstvout                  = $freq                     ; save velocities every 10.0 ps
 nstfout                  = 0
 ;----------------------------------
 ; Output frequency for energies to log file and energy file
 ;----------------------------------
-nstlog                   = 5000                     ; update log file every 10.0 ps
-nstenergy                = 1000                     ; save energies every 2.0 ps
+nstlog                   = $freq                     ; update log file every 10.0 ps
+nstenergy                = $freq                     ; save energies every 2.0 ps
 ;----------------------------------
 ; Output frequency and precision for .xtc file
 ;----------------------------------
-nstxout-compressed       = 5000                     ; save xtc every 10.0 ps
+nstxout-compressed       = $freq                     ; save xtc every 10.0 ps
 ;xtc-precision           = 1000
 
 

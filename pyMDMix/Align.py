@@ -173,7 +173,14 @@ class Align(object):
 
         # Expected extension names in production folder
         exts = self.replica.checkProductionExtension(self.steps)
-
+        
+        # CPPTRAJ is having problems imaging GROMACS trajectories directly
+        # Will use GROMACS tools to prealign them
+        if self.replica.mdProgram in {'GROMACS'}: 
+            from GROMACS import GROMACSWriter
+            gromacs = GROMACSWriter(self.replica)
+            gromacs.preAlign()
+        
         # Use user alignmask?
         if alignmask: self.log.info("Using user defined alignment mask: %s"%alignmask)
 
@@ -195,6 +202,7 @@ class Align(object):
             trajin = mdpath+os.sep+n
             trajout=n
             if ext in ('nc','netcdf','ncdf'): trajout+=' netcdf'
+            elif ext in ('xtc'): trajout = trajout.replace('xtc','nc netcdf')
             elif ext in ('dcd'): trajout+=' dcd'
 
             # Protavg and rmsdout names
