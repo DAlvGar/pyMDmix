@@ -149,7 +149,7 @@ class GROMACSWriter(object):
         cosolvent = ' '.join([co.name for co in solventbox.residues])
                 
         if (self.replica.system.ligandResname != ''):
-            ligand_res = "| "+self.replica.system.ligandResname # if ligand_residue name is defined, add to protein group for temperature coupling
+            ligand_res = 'r '+self.replica.system.ligandResname # if ligand_residue name is defined, add to protein group for temperature coupling
         else:
             ligand_res = ''
             
@@ -161,13 +161,13 @@ class GROMACSWriter(object):
         name %d protein_extra
         "Protein-H" %s & !a H*
         name %d protein_extra_noh
-        "protein" %s
+        "protein_extra" %s
         name %d solute
         r NA+ Na+ CL- Cl- %s
         name %d solvent
-"""%(extrares, lastN+1, extrares, lastN+2, ligand_res, lastN+3, cosolvent, lastN+4)
+"""%(extrares, lastN+1, extrares, lastN+2, ' | '+ligand_res, lastN+3, cosolvent, lastN+4)
         if ligand_res != '':
-            groups+="r "+ligand_res
+            groups+=ligand_res
             groups+="\nname %d ligand\n"%(lastN+5)
         groups += 'q'
         cmd=exe+" << EOF\n"+groups+"\nEOF"
@@ -178,6 +178,8 @@ class GROMACSWriter(object):
             self.log.error("Could not generate GROMACS groups")
             raise GROMACSWriterError, "Could not generate GROMACS groups"
         if os.path.exists('groups.ndx'):
+            with open('groups.ndx_creation.sh','w') as o:
+                o.write(cmd)
             # include groups in topology
             # with open(self.replica.grotop,'r') as top:
             #     toplines = top.read()
@@ -201,8 +203,12 @@ class GROMACSWriter(object):
 #include "%s"
 #endif\n
 """%(ifname, itp_out)
+        self.log.debug(cmd)
         proc = sub.Popen(cmd, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
         exit_code = proc.wait()
+        with open('posre.itp_creation.sh','w') as o:
+            o.write(cmd)
+            
         if exit_code: # Exit different to zero means error
             self.log.error("Could not generate GROMACS restraints file")
             raise GROMACSWriterError, "Could not generate GROMACS restraints file"
@@ -313,12 +319,12 @@ class GROMACSWriter(object):
         if process == 'min1':
             # command = 'amb2gro_top_gro.py -p %s -c %s -t %s -g %s \n'%(prevsep+top, prevsep+crd, prevsep+replica.grotop, prevsep+replica.gro)
             command = S.GROMACS_EXE+' grompp -f min1.mdp -c %s -p %s -o min1.tpr -n ../groups.ndx \n'%(prevsep+replica.gro, prevsep+replica.grotop)
-            command += S.GROMACS_EXE+' mdrun -s min1.tpr -deffnm min1 -nt %d -pin auto'%(self.replica.num_threads)
+            command += S.GROMACS_EXE+' mdrun -s min1.tpr -deffnm min1 -nt %d -pin auto -nb gpu'%(self.replica.num_threads)
             return command
         
         elif process == 'min2':
             command = S.GROMACS_EXE+' grompp -f min2.mdp -c min1.gro -p %s -o min2.tpr -n ../groups.ndx \n'%(prevsep+replica.grotop)
-            command += S.GROMACS_EXE+' mdrun -s min2.tpr -deffnm min2 -nt %d -pin auto'%(self.replica.num_threads)
+            command += S.GROMACS_EXE+' mdrun -s min2.tpr -deffnm min2 -nt %d -pin auto -nb gpu'%(self.replica.num_threads)
             return command
 
         # EQUILIBRATION STEPS
@@ -341,21 +347,21 @@ class GROMACSWriter(object):
             if step == 1:
                 #First step with positional restraints
                 command = S.GROMACS_EXE+' grompp -f eq1.mdp -c %smin2.gro -p %s -o eq1.tpr -n ../groups.ndx -r %s \n'%(prevsep+replica.minfolder+os.sep, prevsep+replica.grotop, prevsep+replica.gro)
-                command += S.GROMACS_EXE+' mdrun -s eq1.tpr -deffnm eq1 -nt %d -pin auto'%(self.replica.num_threads)
+                command += S.GROMACS_EXE+' mdrun -s eq1.tpr -deffnm eq1 -nt %d -pin auto -nb gpu'%(self.replica.num_threads)
             elif step > 1:
                 # Second and third steps without restriants unless requested
                 command = S.GROMACS_EXE+' grompp -f eq%d.mdp -c eq%d.gro -p %s -o eq%d.tpr -n ../groups.ndx -t eq%d.cpt %s\n'%(step, step-1, prevsep+replica.grotop, step, step-1, restr)
-                command += S.GROMACS_EXE+' mdrun -s eq%d.tpr -deffnm eq%d -nt %d -pin auto'%(step,step,self.replica.num_threads)
+                command += S.GROMACS_EXE+' mdrun -s eq%d.tpr -deffnm eq%d -nt %d -pin auto -nb gpu'%(step,step,self.replica.num_threads)
             return command
                 
         elif process == 'md':
             if not step: return False
             if step == 1:
                 command = S.GROMACS_EXE+' grompp -f md.mdp -c %seq%d.gro -p %s -o md%d.tpr -n ../groups.ndx -t %seq%d.cpt %s\n'%( prevsep+replica.eqfolder+os.sep, 3, prevsep+replica.grotop, step, prevsep+replica.eqfolder+os.sep, 3, restr)
-                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d -pin auto'%(step,step,self.replica.num_threads)
+                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d -pin auto -nb gpu'%(step,step,self.replica.num_threads)
             elif step > 1:
                 command = S.GROMACS_EXE+' grompp -f md.mdp -c md%d.gro -p %s -o md%d.tpr -n ../groups.ndx -t md%d.cpt %s\n'%( step-1, prevsep+replica.grotop, step, step-1, restr)
-                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d -pin auto'%(step,step,self.replica.num_threads)
+                command += S.GROMACS_EXE+' mdrun -s md%d.tpr -deffnm md%d -nt %d -pin auto -nb gpu'%(step,step,self.replica.num_threads)
                 # command = S.GROMACS_EXE+' md.py %s %s.rst %s.rst %s.nc %s.log'%(prevsep+top, prevfname, nextfname, nextfname, nextfname)
             return command
 

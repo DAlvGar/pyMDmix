@@ -106,14 +106,14 @@ class SystemConfigFileParser(object):
             parms.update({'top':top, 'crd':crd})
 
         # Optional: specify extra residue names to keep in reference structure (useful for modified residues)
-        extrares = fileSection.get('extrares', [])
+        extrares = fileSection.get('extrares') or []
         if extrares:
             extrares = [l.strip() for l in extrares.split(',')]
             self.log.info("Given extra residue list: %s"%extrares)
         parms.update({'extraResList':extrares})
         
         # Optional: specify extra residue names to keep in reference structure (useful for modified residues)
-        ligandres = fileSection.get('ligandres', '')
+        ligandres = fileSection.get('ligandres') or ''
         ligandres = ligandres.strip()
         if ligandres != '':
             self.log.info("Given ligand residue name identifier: %s"%ligandres)

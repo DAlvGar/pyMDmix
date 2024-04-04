@@ -248,7 +248,7 @@ class System(object):
         self.create.saveAmberParm(self.unitName, prmtop, prmcrd)
         self.__cleanCreate()
 
-        s = SolvatedSystem(name, prmtop, prmcrd, solvent=solvent.name, ref=self.ref)
+        s = SolvatedSystem(name, prmtop, prmcrd, solvent=solvent.name, ref=self.ref, extraResList=self.extraResList, ligandResname=self.ligandResname, FF=self.FF)
         return s
 
     def writeOFF(self, fname):
