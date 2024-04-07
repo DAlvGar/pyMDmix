@@ -198,17 +198,35 @@ class GROMACSWriter(object):
         """
         Add restraints for equilibration: protein + extrares + ligand. Each will be in a separate file due to GROMACS limitation.
         """
+        self.createPartialGROFromComplex('protein')
         self.createRestraintsITP() # default on protein
         for extraRes in self.replica.system.extraResList:
+            self.createPartialGROFromComplex(extraRes)
             self.createRestraintsITP(section_name=extraRes, group_name=extraRes, force=1000, itp_out=extraRes+'.itp', ifname=extraRes)
         if (self.replica.system.ligandResname != ''):
             ligRes = self.replica.system.ligandResname
+            self.createPartialGROFromComplex(ligRes)
             self.createRestraintsITP(section_name=ligRes, group_name=ligRes, force=1000, itp_out=ligRes+'.itp', ifname=ligRes)
+
+    def createPartialGROFromComplex(self, group_name):
+        """Create an independent gro file for a group. This is needed to create proper constraint 
+        ITP file apparently. And we only have one big complex GRO file from Amber"""
+        self.log.info("GROMACS: Creating independent gro file %s.gro for restraining"%(group_name))
+        cmd = "gmx trjconv -s %s -f %s -n groups.ndx -o %s.gro << EOF\n"%(self.replica.gro, self.replica.gro, group_name)
+        cmd += "%s\nEOF"%(group_name)
+        self.log.debug(cmd)
+        proc = sub.Popen(cmd, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
+        exit_code = proc.wait()
+        if exit_code: # Exit different to zero means error
+            self.log.error("Could not generate group GRO file")
+            raise GROMACSWriterError, "Could not generate group GRO file"
+        return True
 
     def createRestraintsITP(self, section_name='system1', group_name='protein', force=1000, itp_out='posre.itp', ifname='POSRES'):
         self.log.info("GROMACS: Adding restraints %s"%(itp_out))
-        cmd = "gmx genrestr -f %s -n groups.ndx -o %s -fc %f %f %f << EOF\n"%(self.replica.gro, itp_out, force, force, force)
-        cmd += "%s\nEOF"%(group_name)
+        #cmd = "gmx genrestr -f %s -n groups.ndx -o %s -fc %f %f %f << EOF\n"%(self.replica.gro, itp_out, force, force, force)
+        #cmd += "%s\nEOF"%(group_name)
+        cmd = "echo 0 | gmx genrestr -f %s -o %s -fc %f %f %f"%(group_name+'.gro', itp_out, force, force, force) # 0 to select all content in group gro file since it was already prepared for the specific group
         posres = """             
 ; Include Position restraint file
 #ifdef %s
@@ -224,6 +242,7 @@ class GROMACSWriter(object):
         if exit_code: # Exit different to zero means error
             self.log.error("Could not generate GROMACS restraints file")
             raise GROMACSWriterError, "Could not generate GROMACS restraints file"
+        
         if os.path.exists(itp_out):
             with open(self.replica.grotop,'r') as top:
                 toplines = top.readlines()
