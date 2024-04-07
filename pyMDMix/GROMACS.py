@@ -55,9 +55,10 @@ class GROMACSWriter(object):
         
         # Convert inputs and add groups and restraints if not done already
         if not self.replica.gro:
+            self.replica.restraint_identifiers = []
             self.convertAmberToGromacs()
             self.createGroups()
-            self.createRestraintsITP()
+            self.createRestraints()
 
     def loadConfig(self, min=None, min2=None, eq1=None, eq2=None, eq3=None, mdNPT=None, mdNVT=None, restr=None):
         """
@@ -192,8 +193,19 @@ class GROMACSWriter(object):
             return True
         else:
             return False
+        
+    def createRestraints(self):
+        """
+        Add restraints for equilibration: protein + extrares + ligand. Each will be in a separate file due to GROMACS limitation.
+        """
+        self.createRestraintsITP() # default on protein
+        for extraRes in self.replica.system.extraResList:
+            self.createRestraintsITP(section_name=extraRes, group_name=extraRes, force=1000, itp_out=extraRes+'.itp', ifname=extraRes)
+        if (self.replica.system.ligandResname != ''):
+            ligRes = self.replica.system.ligandResname
+            self.createRestraintsITP(section_name=ligRes, group_name=ligRes, force=1000, itp_out=ligRes+'.itp', ifname=ligRes)
 
-    def createRestraintsITP(self, group_name='solute', force=1000, itp_out='posre.itp', ifname='POSRES'):
+    def createRestraintsITP(self, section_name='system1', group_name='protein', force=1000, itp_out='posre.itp', ifname='POSRES'):
         self.log.info("GROMACS: Adding restraints %s"%(itp_out))
         cmd = "gmx genrestr -f %s -n groups.ndx -o %s -fc %f %f %f << EOF\n"%(self.replica.gro, itp_out, force, force, force)
         cmd += "%s\nEOF"%(group_name)
@@ -215,17 +227,28 @@ class GROMACSWriter(object):
         if os.path.exists(itp_out):
             with open(self.replica.grotop,'r') as top:
                 toplines = top.readlines()
+        
             new_lines = []
-            n = 0
-            for l in toplines:
-                if '[ moleculetype ]' in l:
-                    if n == 1:
+            inside_moleculetype = False
+            inserted_posres = False
+            for i, line in enumerate(toplines):
+                if '[ moleculetype ]' in line:
+                    if inserted_posres:
                         new_lines.append(posres)
-                    n += 1
-                new_lines.append(l)
-                    
+                        inserted_posres = False
+                    inside_moleculetype = True
+                elif inside_moleculetype:
+                    if line.strip().startswith('['):
+                        inside_moleculetype = False
+                    elif line.strip().startswith(section_name):
+                        # Mark that posres needs to be inserted before the next [ moleculetype ] section
+                        inserted_posres = True
+                new_lines.append(line)
+                        
             with open(self.replica.grotop, 'w') as topout:
                 topout.write(''.join(new_lines))
+                
+            self.replica.restraint_identifiers.append(ifname)
             
             return True
         return False    
@@ -455,10 +478,13 @@ class GROMACSWriter(object):
             mfield = 'define                   = -DPOSRES'
         else:
             mfield = ''
+
+        # equilibration setp 1 restraints on protein+extrares+ligand
+        eq_restraints = ' '.join(['-D'+i for i in self.replica.restraint_identifiers])
             
         T.BROWSER.gotoReplica(replica)
         formatdict = {'timestep':'%.3f'%(replica.md_timestep/1000.), 
-                      'maskfield':mfield,
+                      'maskfield':mfield, 'eqresrtaints':eq_restraints,
                       'freq':replica.trajfrequency, 'temp': replica.temp}
         
         # EQUILIBRATION

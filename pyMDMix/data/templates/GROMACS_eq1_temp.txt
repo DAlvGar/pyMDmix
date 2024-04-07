@@ -6,10 +6,10 @@
 integrator               = md                       ; leap-frog algorithm for Newton eq.
 tinit                    = 0
 dt                       = $timestep                    ; in ps
-nsteps                   = $nsteps                   ; 1.00   ns
+nsteps                   = $nsteps                   
 init-step                = 0
 ;----------------------------------
-define                   = -DPOSRES                 ; position RESTRAINT ACTIVE 4_protein_and_ligand
+define                   = $eqresrtaints                 ; position RESTRAINT ACTIVE 
 xtc-grps                 = System
 ;----------------------------------
 ; COM (center of mass) parameters
