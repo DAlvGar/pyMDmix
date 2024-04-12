@@ -109,14 +109,15 @@ class GROMACSWriter(object):
                 return None
         return False
     
-    def preAlign(self, run=True, cmdfile="prealign_trajectory.sh"):
+    def preAlign(self, run=True, cmdfile="prealign_trajectory.sh", steps=[]):
         """
         Use gmx trajconv to image and center the trajectory for cpptraj to correctly process it afterwards
         Will act on md production trajectories, replacing the original output by an imaged / centered one 
         """
+        if not len(steps): steps = range(1, self.replica.ntrajfiles+1)
         self.replica.go() # Go to replica main folder
         self.log.info("Prealigning GROMACS trajectories")
-        steps = range(1, self.replica.ntrajfiles+1)
+        # steps = range(1, self.replica.ntrajfiles+1)
         # Expected extension names in production folder
         exts = self.replica.checkProductionExtension(steps)
         p = self.replica.mdfolder+os.sep

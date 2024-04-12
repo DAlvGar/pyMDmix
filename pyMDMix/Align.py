@@ -153,7 +153,7 @@ class Align(object):
         if self.replica.mdProgram in {'GROMACS'}: 
             from GROMACS import GROMACSWriter
             gromacs = GROMACSWriter(self.replica)
-            gromacs.preAlign() # write and execute
+            gromacs.preAlign(steps=self.steps) # write and execute
         for i in self.steps:
             cmdpath = self.__aligncmd(i)
             if cmdpath: 
@@ -185,7 +185,7 @@ class Align(object):
         if self.replica.mdProgram in {'GROMACS'}: 
             from GROMACS import GROMACSWriter
             gromacs = GROMACSWriter(self.replica)
-            gromacs.preAlign(False) # only write
+            gromacs.preAlign(False, steps=self.steps) # only write
         
         # Use user alignmask?
         if alignmask: self.log.info("Using user defined alignment mask: %s"%alignmask)
