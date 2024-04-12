@@ -823,7 +823,7 @@ class cppDensity(object):
         path = osp.join(self.replica.path, self.replica.densityfolder)
         # Check input file exists
         if not osp.exists(osp.join(path,input_file)):
-            raise AlignError, "File %s does not exists in alignment folder of replica %s"%(input_file, self.replica.name)
+            raise DensityError, "File %s does not exists in alignment folder of replica %s"%(input_file, self.replica.name)
         outf= input_file.replace('.ptraj','_ptraj.log')
         top = os.pardir+os.sep+self.replica.top
         cmd = S.AMBER_PTRAJ+' {top} < {inf} > {outf}'.format(top=top, inf=input_file, outf=outf)

@@ -122,7 +122,7 @@ class Align(object):
         if not osp.exists(newref): 
             pdb = self.replica.getPDB()
             ref = SolvatedPDB(self.replica.ref)
-	    mask = pdb.maskProtein()
+            mask = pdb.maskProtein()
             alpdb = pdb.magicFit(ref, mask=mask.astype(int))
             alpdb.writePdb(newref)
         
@@ -148,6 +148,12 @@ class Align(object):
     def run(self):
         "Run centering process for steps selected at instantiation."
         self.log.info("Running alignment of trajectory in replica %s"%self.replica.name)
+        # CPPTRAJ is having problems imaging GROMACS trajectories directly
+        # Will use GROMACS tools to prealign them
+        if self.replica.mdProgram in {'GROMACS'}: 
+            from GROMACS import GROMACSWriter
+            gromacs = GROMACSWriter(self.replica)
+            gromacs.preAlign() # write and execute
         for i in self.steps:
             cmdpath = self.__aligncmd(i)
             if cmdpath: 
@@ -179,7 +185,7 @@ class Align(object):
         if self.replica.mdProgram in {'GROMACS'}: 
             from GROMACS import GROMACSWriter
             gromacs = GROMACSWriter(self.replica)
-            gromacs.preAlign()
+            gromacs.preAlign(False) # only write
         
         # Use user alignmask?
         if alignmask: self.log.info("Using user defined alignment mask: %s"%alignmask)

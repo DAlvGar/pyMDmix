@@ -109,7 +109,7 @@ class GROMACSWriter(object):
                 return None
         return False
     
-    def preAlign(self):
+    def preAlign(self, run=True, cmdfile="prealign_trajectory.sh"):
         """
         Use gmx trajconv to image and center the trajectory for cpptraj to correctly process it afterwards
         Will act on md production trajectories, replacing the original output by an imaged / centered one 
@@ -120,24 +120,35 @@ class GROMACSWriter(object):
         # Expected extension names in production folder
         exts = self.replica.checkProductionExtension(steps)
         p = self.replica.mdfolder+os.sep
+        all_cmds = ""
         for i in steps:
             ext = exts[i]
             n = self.replica.mdoutfiletemplate.format(step=i, extension=ext)
             trajin = p+n # eg md/md1.xtc
+            
+            if not osp.exists(trajin): 
+                raise GROMACSWriterError, "Gromacs trajectory file for step %d not found"%(i)
+            
             tprin = trajin.replace(ext, 'tpr')
             trajout=trajin.replace('.'+ext, '_al.'+ext)
             trajtmp=trajin.replace('.'+ext, '_tmp.'+ext)
             cmd = "echo '1 0'|gmx trjconv -s %s -f %s -o %s -pbc nojump -center;\
-                  echo '1 0'|gmx trjconv -s %s -f %s -o %s -pbc mol -ur compact -center; mv %s %s; rm %s"%(tprin, 
-                                        trajin, trajtmp, tprin, trajtmp, trajout, trajout, trajin, trajtmp)
+                  echo '1 0'|gmx trjconv -s %s -f %s -o %s -pbc mol -ur compact -center; mv %s %s; rm %s\n"%(tprin, 
+                                        trajin, trajtmp, tprin, trajtmp, trajout, trajout, trajin, trajtmp) # 1=center on protein 0=output all system
             self.log.debug(cmd)
-            proc = sub.Popen(cmd, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
-            exit_code = proc.wait()
-            if exit_code: # Exit different to zero means error
-                self.log.error("Could not prealign GROMACS trajectory "+trajin)
-                raise GROMACSWriterError, "Could not prealign GROMACS trajectory "+trajin
-            else:
-                self.log.info("Pre-alignment of GROMACS trajectory done: %s"%trajin)        
+            all_cmds+=cmd
+            if run:
+                proc = sub.Popen(cmd, shell=True, stdin = sub.PIPE,  stdout=sub.PIPE,  stderr=sub.PIPE)
+                exit_code = proc.wait()
+                if exit_code: # Exit different to zero means error
+                    self.log.error("Could not prealign GROMACS trajectory "+trajin)
+                    raise GROMACSWriterError, "Could not prealign GROMACS trajectory "+trajin
+                else:
+                    self.log.info("Pre-alignment of GROMACS trajectory done: %s"%trajin)        
+                    
+        with open(cmdfile,'w') as out:
+            out.write(all_cmds)
+            
         T.BROWSER.goback()
         return True
     
