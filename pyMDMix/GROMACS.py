@@ -782,9 +782,9 @@ class GROMACSCheck(object):
         :return float Volume: Simulation volume.
         """
         replica = replica or self.replica
-        if not replica: raise AmberCheckError, "Replica not assigned."
+        if not replica: raise GROMACSCheckError, "Replica not assigned."
         
-        boxextension = boxextension or 'rst'
+        boxextension = boxextension or 'log'
         
         # Work on step. If not given, fetch last completed production step.
         step = step or replica.lastCompletedProductionStep()
@@ -795,10 +795,31 @@ class GROMACSCheck(object):
         if not os.path.exists(fname):
             self.log.error("No file found with name %s to fetch box volume in DG0 penalty calculation. Returning no penalty..."%fname)
             return False
-        box = map(float, open(fname,'r').readlines()[-1].strip().split())
-        vol = box[0]*box[1]*box[2]
         
-        if box[3] != 90.0: vol *= 0.77 # orthorombic volume correction
+        # Fetch box information
+        # in NPT simulations, the log file will contain the average volume in the end of the file
+        # EG:
+        #
+        #            Box-X          Box-Y          Box-Z
+        #      8.33814e+00    7.86127e+00    6.80806e+00
+        #
+        # This is in nanometers, multiply by 10 for angstroms
+        # It will be an orthorombic box if prepared with mdmix, so apply also orthorombic volume correction (0.77)
+        #
+        box_values = []
+        in_section = False
+        with open(fname,'r') as f:
+            for line in f:
+                if 'Box-X' in line:
+                    in_section=True # go fetch the next one
+                elif in_section:
+                    [box_values.append(float(v)) for v in line.split()]
+                    in_section =False
+                    break # stop loop
+                else:
+                    continue
+        
+        vol = npy.prod(npy.array(box_values) * 10) * 0.77        
         return vol
 
     

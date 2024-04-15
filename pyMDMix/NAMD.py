@@ -542,8 +542,8 @@ class NAMDCheck(object):
         vec_a = npy.array(box[1:4]).astype(float)
         vec_b = npy.array(box[4:7]).astype(float)
         vec_c = npy.array(box[7:10]).astype(float)
-        vol = npy.linalg.norm(a)*npy.linalg.norm(b)*npy.linalg.norm(c)
-        if b[0] != 0: # Assume we have an orthorombic box
+        vol = npy.linalg.norm(vec_a)*npy.linalg.norm(vec_b)*npy.linalg.norm(vec_c)
+        if vec_b[0] != 0: # Assume we have an orthorombic box
             vol *= 0.77
         return vol
 
