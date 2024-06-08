@@ -69,6 +69,15 @@ Build and run from a docker container using the provided Dockerfile.
 The docker run command will mount the current working directory (windows users should replace $PWD by %cd%) so the container has access to the current location. Output will be also in the current working directory. 
 s
 
+5 - Using GROMACS
+-----------------
+Tips for running with GROMACS instead of the default AMBER. There are some limitations when using GROMACS and not all functionalities available with AMBER have been yet ported. 
+
+1- Add MDPROGRAM="GROMACS" to the MDSETTINGS section in the configuration file to use GROMACS. pyMDMIX will try to generate all the needed positional restraints that will be used during equilibration. However this automatic step might sometimes fail. 
+2- Proteins with more than 1 chain might fail in the restraints file preparation. These restraints are used during heating and first phases of equilibration.
+3- Applying HA or positional restraints during the simulation is still not possible yet.
+4- Add a LIGANDRES entry to the SYSTEM settings section if you have a protein-ligand complex.
+
 4 - Enjoy!
 ----------
 Read program usage at online documentation.

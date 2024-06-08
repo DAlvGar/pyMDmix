@@ -162,7 +162,7 @@ class GROMACSWriter(object):
         cosolvent = ' '.join([co.name for co in solventbox.residues])
                 
         if (self.replica.system.ligandResname != ''):
-            ligand_res = 'r '+self.replica.system.ligandResname # if ligand_residue name is defined, add to protein group for temperature coupling
+            ligand_res = '"'+self.replica.system.ligandResname+'"' # if ligand_residue name is defined, add to protein group for temperature coupling
         else:
             ligand_res = ''
             
