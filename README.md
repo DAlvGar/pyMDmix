@@ -76,7 +76,7 @@ Tips for running with GROMACS instead of the default AMBER. There are some limit
 1- Add MDPROGRAM="GROMACS" to the MDSETTINGS section in the configuration file to use GROMACS. pyMDMIX will try to generate all the needed positional restraints that will be used during equilibration. However this automatic step might sometimes fail. 
 2- Proteins with more than 1 chain might fail in the restraints file preparation. These restraints are used during heating and first phases of equilibration.
 3- Applying HA or positional restraints during the simulation is still not possible yet.
-4- Add a LIGANDRES entry to the SYSTEM settings section if you have a protein-ligand complex.
+4- Add a LIGANDRES entry to the SYSTEM settings section if you have a protein-ligand complex. Don't add quotes.
 
 4 - Enjoy!
 ----------
