@@ -134,7 +134,7 @@ class TestGromacsHybridApproach(unittest.TestCase):
             result = gromacs._checkMultipleChains()
             self.assertTrue(result, "Should detect multiple chains in test_multichain.pdb")
         except Exception as e:
-            self.fail(f"_checkMultipleChains raised exception: {e}")
+            self.fail("_checkMultipleChains raised exception: {}".format(e))
 
     def test_check_missing_loops(self):
         """Test the _checkMultipleChains method for missing loop detection"""
@@ -150,7 +150,7 @@ class TestGromacsHybridApproach(unittest.TestCase):
             result = gromacs._checkMultipleChains()
             self.assertTrue(result, "Should detect missing loops in test_missingloop.pdb")
         except Exception as e:
-            self.fail(f"_checkMultipleChains raised exception: {e}")
+            self.fail("_checkMultipleChains raised exception: {}".format(e))
 
     def test_map_amber_to_gromacs_ff(self):
         """Test the _mapAmberToGromacsFF method for force field mapping"""
@@ -204,10 +204,10 @@ class TestGromacsHybridApproach(unittest.TestCase):
             gromacs.convertAmberToGromacs()
             
             # Check if output files were created
-            self.assertTrue(os.path.exists(replica.grotop), f"Topology file {replica.grotop} not created")
-            self.assertTrue(os.path.exists(replica.gro), f"Coordinate file {replica.gro} not created")
+            self.assertTrue(os.path.exists(replica.grotop), "Topology file {} not created".format(replica.grotop))
+            self.assertTrue(os.path.exists(replica.gro), "Coordinate file {} not created".format(replica.gro))
         except Exception as e:
-            self.fail(f"convertAmberToGromacs raised exception: {e}")
+            self.fail("convertAmberToGromacs raised exception: {}".format(e))
 
     @unittest.skipIf(not os.path.exists("/usr/bin/gmx"), "GROMACS executable not found")
     def test_real_conversion(self):

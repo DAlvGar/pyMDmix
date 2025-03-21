@@ -39,7 +39,7 @@ from pyMDMix.test_gromacs_hybrid import MockReplica, MockSystem
 # Create a test with real data
 class RealReplica(MockReplica):
     def __init__(self, name, top, crd, ref=None):
-        super().__init__(name, top, crd, ref)
+        MockReplica.__init__(self, name, top, crd, ref)
         # Use actual file paths
         self.top = 'test_data/gromacs_hybrid/' + top
         self.crd = 'test_data/gromacs_hybrid/' + crd

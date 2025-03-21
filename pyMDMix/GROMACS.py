@@ -644,7 +644,7 @@ class GROMACSWriter(object):
                 
                 # If there's more than one chain, return True
                 if len(residue_ids) > 1:
-                    self.log.info(f"Detected {len(residue_ids)} chains in protein")
+                    self.log.info("Detected {} chains in protein".format(len(residue_ids)))
                     return True
                 
                 # Check for discontinuities in residue numbering that might indicate missing loops
@@ -652,14 +652,14 @@ class GROMACSWriter(object):
                     sorted_res_ids = sorted(residue_ids[0])
                     for i in range(len(sorted_res_ids) - 1):
                         if sorted_res_ids[i+1] - sorted_res_ids[i] > 1:
-                            self.log.info(f"Detected gap in residue numbering between {sorted_res_ids[i]} and {sorted_res_ids[i+1]}")
+                            self.log.info("Detected gap in residue numbering between {} and {}".format(sorted_res_ids[i], sorted_res_ids[i+1]))
                             return True
             
             # If we can't check, assume there might be missing loops
             return True
             
         except Exception as e:
-            self.log.warning(f"Error checking for multiple chains: {str(e)}")
+            self.log.warning("Error checking for multiple chains: {}".format(str(e)))
             # If we can't check, assume there might be multiple chains
             return True
 
@@ -703,15 +703,15 @@ class GROMACSWriter(object):
             pdb2gmx_gro = os.path.join(tmpdir, "pdb2gmx.gro")
             
             # Run pdb2gmx with chain handling options
-            cmd = f"gmx pdb2gmx -f {temp_pdb} -o {pdb2gmx_gro} -p {pdb2gmx_grotop} " \
-                  f"-chainsep id_and_ter -merge all -ff {gromacs_force_field} -water {gromacs_water_model} -ignh"
+            cmd = "gmx pdb2gmx -f {} -o {} -p {} -chainsep id_and_ter -merge all -ff {} -water {} -ignh".format(
+                  temp_pdb, pdb2gmx_gro, pdb2gmx_grotop, gromacs_force_field, gromacs_water_model)
             
-            self.log.info(f"Creating chain-aware structure template using pdb2gmx")
+            self.log.info("Creating chain-aware structure template using pdb2gmx")
             proc = sub.Popen(cmd, shell=True, stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE)
             stdout, stderr = proc.communicate()
             
             if proc.returncode != 0:
-                self.log.error(f"pdb2gmx conversion failed: {stderr.decode() if stderr else 'Unknown error'}")
+                self.log.error("pdb2gmx conversion failed: {}".format(stderr.decode() if stderr else 'Unknown error'))
                 self.log.warning("Falling back to standard ParmEd conversion")
                 amber_structure.save(self.replica.grotop, overwrite=True, format='gromacs')
                 amber_structure.save(self.replica.gro, overwrite=True, format='gro')
@@ -762,10 +762,10 @@ class GROMACSWriter(object):
             for ff in self.replica.FF:
                 if ff in amber_ff_map:
                     gromacs_force_field = amber_ff_map[ff]
-                    self.log.info(f"Mapped AMBER force field {ff} to GROMACS force field {gromacs_force_field}")
+                    self.log.info("Mapped AMBER force field {} to GROMACS force field {}".format(ff, gromacs_force_field))
                 if ff in amber_water_map:
                     gromacs_water_model = amber_water_map[ff]
-                    self.log.info(f"Mapped AMBER water model {ff} to GROMACS water model {gromacs_water_model}")
+                    self.log.info("Mapped AMBER water model {} to GROMACS water model {}".format(ff, gromacs_water_model))
         
         return gromacs_force_field, gromacs_water_model
 
@@ -1088,7 +1088,7 @@ class Test(BT.BiskitTest):
         self.r1.createFolder()
         self.r1.createMDInput()
         writer = GROMACSWriter(self.r1)
-        print "\n".join(writer.getReplicaCommands())
+        print("\n".join(writer.getReplicaCommands()))
         
         self.testdir += os.sep+'testGROMACS'
     
