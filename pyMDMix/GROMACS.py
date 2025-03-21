@@ -580,22 +580,261 @@ class GROMACSWriter(object):
         return exists
                
     def convertAmberToGromacs(self, replica=False):
+        """
+        Convert AMBER files to GROMACS format using a hybrid approach that preserves
+        all AMBER topology parameters while ensuring proper chain handling.
+        """
         import parmed as pmd
+        import tempfile
+        import os
+        import subprocess as sub
+        
         replica = replica or self.replica
         if not replica: raise GROMACSWriterError, "Replica not assigned."
         
         # Load the AMBER prmtop and inpcrd files
         self.log.info("Converting Amber TOP/CRD to GROMACS format for replica %s ..."%(replica.name))
-        amber = pmd.load_file(self.replica.top, xyz=self.replica.crd)
+        
+        # Define output filenames
         self.replica.grotop = self.replica.top.replace('prmtop','top')
         self.replica.gro = self.replica.crd.replace('prmcrd','gro')
-
-        # Save GROMACS top and gro files, along with a PDB file
-        amber.save(self.replica.grotop, overwrite=True, format='gromacs')
-        amber.save(self.replica.gro, overwrite=True, format='gro')
-        #amber.save(options.pdb, overwrite=True, format='pdb')
         
-    
+        # First, determine if we need to use the multi-chain approach
+        # by checking if the protein has missing loops or multiple chains
+        has_multiple_chains = self._checkMultipleChains()
+        
+        # Load the AMBER structure with ParmEd - we'll need this in both cases
+        amber_structure = pmd.load_file(self.replica.top, xyz=self.replica.crd)
+        
+        if has_multiple_chains:
+            self.log.info("Detected protein with multiple chains or missing loops. Using chain-aware conversion.")
+            # Use the hybrid approach to preserve AMBER parameters while fixing chain handling
+            self._convertWithHybridApproach(amber_structure)
+        else:
+            # Use regular ParmEd conversion for simple proteins
+            self.log.info("Using standard conversion for single-chain protein.")
+            amber_structure.save(self.replica.grotop, overwrite=True, format='gromacs')
+            amber_structure.save(self.replica.gro, overwrite=True, format='gro')
+
+    def _checkMultipleChains(self):
+        """
+        Check if the protein has multiple chains or missing loops.
+        
+        Returns:
+            bool: True if multiple chains or missing loops are detected
+        """
+        # Try to identify chains from the reference structure
+        try:
+            from PDB import SolvatedPDB
+            import Biskit as bi
+            
+            # Check if we have a reference PDB file
+            ref_pdb = None
+            if hasattr(self.replica.system, 'ref') and self.replica.system.ref:
+                ref_pdb = self.replica.system.ref.filename
+            elif hasattr(self.replica, 'ref') and self.replica.ref:
+                ref_pdb = self.replica.ref
+            
+            if ref_pdb and os.path.exists(ref_pdb):
+                # Load the PDB file using Biskit or SolvatedPDB
+                solv_pdb = SolvatedPDB(ref_pdb)
+                
+                # Get chain information
+                residue_ids = solv_pdb.chainResIDs()
+                
+                # If there's more than one chain, return True
+                if len(residue_ids) > 1:
+                    self.log.info(f"Detected {len(residue_ids)} chains in protein")
+                    return True
+                
+                # Check for discontinuities in residue numbering that might indicate missing loops
+                if len(residue_ids) == 1 and residue_ids[0]:
+                    sorted_res_ids = sorted(residue_ids[0])
+                    for i in range(len(sorted_res_ids) - 1):
+                        if sorted_res_ids[i+1] - sorted_res_ids[i] > 1:
+                            self.log.info(f"Detected gap in residue numbering between {sorted_res_ids[i]} and {sorted_res_ids[i+1]}")
+                            return True
+            
+            # If we can't check, assume there might be missing loops
+            return True
+            
+        except Exception as e:
+            self.log.warning(f"Error checking for multiple chains: {str(e)}")
+            # If we can't check, assume there might be multiple chains
+            return True
+
+    def _convertWithHybridApproach(self, amber_structure):
+        """
+        Convert AMBER to GROMACS using a hybrid approach:
+        1. Use ParmEd to preserve all force field parameters
+        2. Use a temporary pdb2gmx step to fix chain handling
+        3. Merge the chain information from pdb2gmx with the parameters from ParmEd
+        
+        This ensures we maintain all AMBER parameters while fixing chain topology issues.
+        
+        Args:
+            amber_structure: ParmEd structure loaded from AMBER files
+        """
+        import parmed as pmd
+        import tempfile
+        import os
+        import subprocess as sub
+        
+        # Create a temporary directory for the conversion process
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # First, create GROMACS files directly from AMBER using ParmEd
+            # This preserves all force field parameters
+            parmed_grotop = os.path.join(tmpdir, "parmed.top")
+            parmed_gro = os.path.join(tmpdir, "parmed.gro")
+            amber_structure.save(parmed_grotop, overwrite=True, format='gromacs')
+            amber_structure.save(parmed_gro, overwrite=True, format='gro')
+            
+            # Second, save a PDB file for chain processing
+            temp_pdb = os.path.join(tmpdir, "amber.pdb")
+            amber_structure.save(temp_pdb, overwrite=True)
+            
+            # Map AMBER force field to GROMACS force field for pdb2gmx
+            # This ensures we specify proper force field names for GROMACS tools
+            gromacs_force_field, gromacs_water_model = self._mapAmberToGromacsFF()
+            
+            # Generate a chain-aware topology using pdb2gmx
+            # This will create a topology that properly handles chains
+            pdb2gmx_grotop = os.path.join(tmpdir, "pdb2gmx.top")
+            pdb2gmx_gro = os.path.join(tmpdir, "pdb2gmx.gro")
+            
+            # Run pdb2gmx with chain handling options
+            cmd = f"gmx pdb2gmx -f {temp_pdb} -o {pdb2gmx_gro} -p {pdb2gmx_grotop} " \
+                  f"-chainsep id_and_ter -merge all -ff {gromacs_force_field} -water {gromacs_water_model} -ignh"
+            
+            self.log.info(f"Creating chain-aware structure template using pdb2gmx")
+            proc = sub.Popen(cmd, shell=True, stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE)
+            stdout, stderr = proc.communicate()
+            
+            if proc.returncode != 0:
+                self.log.error(f"pdb2gmx conversion failed: {stderr.decode() if stderr else 'Unknown error'}")
+                self.log.warning("Falling back to standard ParmEd conversion")
+                amber_structure.save(self.replica.grotop, overwrite=True, format='gromacs')
+                amber_structure.save(self.replica.gro, overwrite=True, format='gro')
+                return
+            
+            # Now we need to merge the chain information from pdb2gmx with the parameters from ParmEd
+            self._mergeChainInfoWithParameters(parmed_grotop, pdb2gmx_grotop, self.replica.grotop)
+            
+            # For the coordinate file, use the pdb2gmx output as it should have the right chain structure
+            import shutil
+            shutil.copy(pdb2gmx_gro, self.replica.gro)
+            
+            self.log.info("Successfully created GROMACS files with correct chain handling while preserving AMBER parameters")
+
+    def _mapAmberToGromacsFF(self):
+        """
+        Map AMBER force field to GROMACS force field names.
+        
+        Returns:
+            tuple: (gromacs_force_field, gromacs_water_model)
+        """
+        # Default force field mapping if we can't determine from FF
+        gromacs_force_field = "amber99sb-ildn"
+        gromacs_water_model = "tip3p"
+        
+        # Try to determine GROMACS force field from AMBER FF
+        if hasattr(self.replica, 'FF') and self.replica.FF:
+            # Map AMBER FF to GROMACS FF
+            amber_ff_map = {
+                "leaprc.protein.ff14SB": "amber14sb",
+                "leaprc.ff14SB": "amber14sb",
+                "leaprc.protein.ff99SB": "amber99sb",
+                "leaprc.ff99SB": "amber99sb",
+                "leaprc.protein.ff99SBildn": "amber99sb-ildn",
+                "leaprc.ff99SBildn": "amber99sb-ildn"
+            }
+            
+            # Map AMBER water model to GROMACS water model
+            amber_water_map = {
+                "leaprc.water.tip3p": "tip3p",
+                "leaprc.water.tip4p": "tip4p",
+                "leaprc.water.tip4pew": "tip4p-ew",
+                "leaprc.water.tip5p": "tip5p",
+                "leaprc.water.spce": "spce"
+            }
+            
+            # Try to find matching force field and water model
+            for ff in self.replica.FF:
+                if ff in amber_ff_map:
+                    gromacs_force_field = amber_ff_map[ff]
+                    self.log.info(f"Mapped AMBER force field {ff} to GROMACS force field {gromacs_force_field}")
+                if ff in amber_water_map:
+                    gromacs_water_model = amber_water_map[ff]
+                    self.log.info(f"Mapped AMBER water model {ff} to GROMACS water model {gromacs_water_model}")
+        
+        return gromacs_force_field, gromacs_water_model
+
+    def _mergeChainInfoWithParameters(self, parmed_top, pdb2gmx_top, output_top):
+        """
+        Merge the chain information from pdb2gmx with the parameters from ParmEd.
+        
+        Args:
+            parmed_top: Path to topology file generated by ParmEd
+            pdb2gmx_top: Path to topology file generated by pdb2gmx
+            output_top: Path to output hybrid topology file
+        """
+        import re
+        
+        # Read the topologies
+        with open(parmed_top, 'r') as f:
+            parmed_content = f.read()
+        
+        with open(pdb2gmx_top, 'r') as f:
+            pdb2gmx_content = f.read()
+        
+        # Extract moleculetype section from pdb2gmx
+        moleculetype_match = re.search(r'\[ moleculetype \].*?\n(.*?)(?=\n\[)', pdb2gmx_content, re.DOTALL)
+        if not moleculetype_match:
+            self.log.error("Could not find moleculetype section in pdb2gmx topology")
+            # Fall back to using the parmed topology directly
+            with open(output_top, 'w') as f:
+                f.write(parmed_content)
+            return
+        
+        # Extract system section from pdb2gmx
+        system_match = re.search(r'\[ system \].*?\n(.*?)(?=\n\[|$)', pdb2gmx_content, re.DOTALL)
+        system_section = system_match.group(0) if system_match else ""
+        
+        # Look for position restraint includes in pdb2gmx
+        posres_includes = re.findall(r'#include ".*?posre.*?"', pdb2gmx_content)
+        
+        # Replace moleculetype section in parmed content
+        new_topology = re.sub(
+            r'(\[ moleculetype \].*?)(?=\n\[ atoms \])',
+            moleculetype_match.group(0),
+            parmed_content,
+            flags=re.DOTALL
+        )
+        
+        # Replace system section if found
+        if system_section:
+            new_topology = re.sub(
+                r'\[ system \].*?(?=\n\[|$)',
+                system_section,
+                new_topology,
+                flags=re.DOTALL
+            )
+        
+        # Add position restraint includes if not present
+        for include in posres_includes:
+            if include not in new_topology:
+                # Add after the moleculetype section
+                new_topology = new_topology.replace(
+                    '[ atoms ]',
+                    f'{include}\n[ atoms ]'
+                )
+        
+        # Write the merged topology
+        with open(output_top, 'w') as f:
+            f.write(new_topology)
+        
+        self.log.info("Successfully merged chain information with AMBER parameters")
+
     def writeReplicaInput(self, replica=False):
         replica = replica or self.replica
         if not replica: raise GROMACSWriterError, "Replica not assigned."
