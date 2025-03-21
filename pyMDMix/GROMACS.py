@@ -679,9 +679,11 @@ class GROMACSWriter(object):
         import tempfile
         import os
         import subprocess as sub
+        import shutil
         
         # Create a temporary directory for the conversion process
-        with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = tempfile.mkdtemp()
+        try:
             # First, create GROMACS files directly from AMBER using ParmEd
             # This preserves all force field parameters
             parmed_grotop = os.path.join(tmpdir, "parmed.top")
@@ -711,7 +713,9 @@ class GROMACSWriter(object):
             stdout, stderr = proc.communicate()
             
             if proc.returncode != 0:
-                self.log.error("pdb2gmx conversion failed: {}".format(stderr.decode() if stderr else 'Unknown error'))
+                # Use UTF-8 safe error handling for Python 2.7
+                stderr_str = stderr if isinstance(stderr, str) else stderr.decode('utf-8', 'replace')
+                self.log.error("pdb2gmx conversion failed: {}".format(stderr_str or 'Unknown error'))
                 self.log.warning("Falling back to standard ParmEd conversion")
                 amber_structure.save(self.replica.grotop, overwrite=True, format='gromacs')
                 amber_structure.save(self.replica.gro, overwrite=True, format='gro')
@@ -721,10 +725,12 @@ class GROMACSWriter(object):
             self._mergeChainInfoWithParameters(parmed_grotop, pdb2gmx_grotop, self.replica.grotop)
             
             # For the coordinate file, use the pdb2gmx output as it should have the right chain structure
-            import shutil
             shutil.copy(pdb2gmx_gro, self.replica.gro)
             
             self.log.info("Successfully created GROMACS files with correct chain handling while preserving AMBER parameters")
+        finally:
+            # Clean up temporary directory
+            shutil.rmtree(tmpdir)
 
     def _mapAmberToGromacsFF(self):
         """
@@ -826,7 +832,7 @@ class GROMACSWriter(object):
                 # Add after the moleculetype section
                 new_topology = new_topology.replace(
                     '[ atoms ]',
-                    f'{include}\n[ atoms ]'
+                    '{}\n[ atoms ]'.format(include)
                 )
         
         # Write the merged topology
