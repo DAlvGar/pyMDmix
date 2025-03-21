@@ -631,7 +631,7 @@ class GROMACSWriter(object):
             # Check if we have a reference PDB file
             ref_pdb = None
             if hasattr(self.replica.system, 'ref') and self.replica.system.ref:
-                ref_pdb = self.replica.system.ref.filename
+                ref_pdb = self.replica.system.ref
             elif hasattr(self.replica, 'ref') and self.replica.ref:
                 ref_pdb = self.replica.ref
             
