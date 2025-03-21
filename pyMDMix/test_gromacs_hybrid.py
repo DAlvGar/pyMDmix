@@ -82,11 +82,15 @@ class TestGromacsHybridApproach(unittest.TestCase):
 
     def tearDown(self):
         """Clean up after tests"""
-        # Change back to original directory
-        os.chdir(self.old_cwd)
-        
-        # Remove temporary directory
-        shutil.rmtree(self.test_dir)
+        try:
+            # Change back to original directory
+            os.chdir(self.old_cwd)
+            
+            # Remove temporary directory
+            if os.path.exists(self.test_dir):
+                shutil.rmtree(self.test_dir)
+        except Exception as e:
+            print("Error during tearDown: {}".format(e))
 
     def create_test_files(self):
         """Create necessary test files"""
@@ -227,5 +231,10 @@ class TestGromacsHybridApproach(unittest.TestCase):
         
         self.skipTest("Skipping real conversion test - requires real AMBER files")
 
+# Use a custom test runner to avoid I/O issues
+def run_tests():
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestGromacsHybridApproach)
+    unittest.TextTestRunner(verbosity=2).run(suite)
+
 if __name__ == "__main__":
-    unittest.main() 
+    run_tests() 

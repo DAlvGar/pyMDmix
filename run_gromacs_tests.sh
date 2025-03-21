@@ -6,6 +6,7 @@ echo "Running GROMACS hybrid approach tests for multi-chain proteins"
 
 # Ensure we're in the right directory
 cd "$(dirname "$0")"
+SCRIPT_DIR="$(pwd)"
 
 # Check if pytest is available (preferred for modern Python testing)
 if command -v pytest > /dev/null 2>&1; then
@@ -32,7 +33,14 @@ if [ "$FULL_TEST" = "1" ] && [ -f "test_multichain.prmtop" ]; then
     python -c "
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Use absolute paths based on the script directory
+script_dir = '$SCRIPT_DIR'
+test_data_dir = os.path.join(script_dir, 'test_data', 'gromacs_hybrid')
+
+# Add the project root to the Python path
+sys.path.insert(0, script_dir)
+
 from pyMDMix.GROMACS import GROMACSWriter
 from pyMDMix.test_gromacs_hybrid import MockReplica, MockSystem
 
@@ -40,10 +48,10 @@ from pyMDMix.test_gromacs_hybrid import MockReplica, MockSystem
 class RealReplica(MockReplica):
     def __init__(self, name, top, crd, ref=None):
         MockReplica.__init__(self, name, top, crd, ref)
-        # Use actual file paths
-        self.top = 'test_data/gromacs_hybrid/' + top
-        self.crd = 'test_data/gromacs_hybrid/' + crd
-        self.ref = 'test_data/gromacs_hybrid/' + ref if ref else None
+        # Use absolute file paths
+        self.top = os.path.join(test_data_dir, top)
+        self.crd = os.path.join(test_data_dir, crd)
+        self.ref = os.path.join(test_data_dir, ref) if ref else None
         self.grotop = self.top.replace('prmtop', 'top')
         self.gro = self.crd.replace('prmcrd', 'gro')
 
